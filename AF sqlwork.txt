@@ -1,0 +1,504 @@
+sqlCommand.CommandText
+
+
+
+SET DATEFORMAT YMD; 
+DECLARE @StartTimeN as datetime 
+DECLARE @EndTimeN as datetime 
+DECLARE @AFDatabase as nvarchar(50) 
+DECLARE @EFTemlate as nvarchar(50) 
+SET @StartTimeN = '2020-01-18 22:00:00';
+SET @EndTimeN = '2020-01-19 22:00:00';
+SET @AFDatabase = 'SMOPT'
+SET @EFTemlate = 'Выход за верхний предел блокировки'
+
+DECLARE @starttime bigint; SET @starttime = [dbo].[DateToTicks](@StartTimeN); 
+DECLARE @endtime bigint;   SET @endtime = [dbo].[DateToTicks](@EndTimeN); 
+
+DECLARE @tid int 
+SET @tid = (SELECT rid FROM AFElementTemplate 
+  WHERE id = (SELECT [id] FROM [dbo].[AFElementTemplate] 
+    WHERE Name = @EFTemlate AND fkdatabaseid = (SELECT [id] FROM [dbo].[AFDatabase] 
+      WHERE Name = @AFDatabase))); 
+ 
+DECLARE @did int 
+SET @did = (SELECT rid FROM AFDatabase 
+WHERE name = @AFDatabase); 
+
+SELECT * FROM [AFEventFrame] ev           
+WHERE  
+( 
+        (ev.starttime >= @starttime and ev.starttime <= @endtime)  
+     OR 
+        (ev.endtime >= @starttime and ev.endtime <= @endtime) 
+     OR 
+        (ev.starttime < @endtime AND ev.endtime = 3155378975990000000) 
+) 
+and ev.fkdatabaseid = @did 
+and ev.fktemplateid = @tid
+
+
+ошибка
+
+
+
+
+// AFSQLWORK
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
+using System.Linq;
+
+internal class AFSQLWORK
+{
+    private string AFSQLConnStr = "";
+
+    private string AFServerName = "";
+
+    private string AFDatabase = "";
+
+    private SqlConnection conn;
+
+    private string QActiveEvents = "SET DATEFORMAT YMD;\nDECLARE @StartTimeN as datetime\nDECLARE @EndTimeN as datetime\nDECLARE @AFDatabase as nvarchar(50)\nDECLARE @EFTemlate as nvarchar(50)\nSET @StartTimeN = '{0:yyyy-MM-dd HH:mm:ss}';\nSET @EndTimeN = '{1:yyyy-MM-dd HH:mm:ss}';\nSET @AFDatabase = '{2}'\nSET @EFTemlate = '{3}'\nIF NOT EXISTS(SELECT *\n           FROM   sys.objects\n           WHERE  object_id = OBJECT_ID(N'[dbo].[ToDateTime2]')\n                  AND type IN ( N'FN', N'IF', N'TF', N'FS', N'FT' ))\nBEGIN\n DECLARE @sql NVARCHAR(MAX);\n SET @sql = N'CREATE FUNCTION [dbo].[ToDateTime2] ( @Ticks bigint )\n   RETURNS datetime2\n AS\n BEGIN\n  DECLARE @DateTime datetime2 = ' + CHAR(39) + '00010101' + CHAR(39) +';\n  SET @DateTime = DATEADD( DAY, @Ticks / 864000000000, @DateTime );\n  SET @DateTime = DATEADD( SECOND, ( @Ticks % 864000000000) / 10000000, @DateTime );\n  RETURN DATEADD( NANOSECOND, ( @Ticks % 10000000 ) * 100, @DateTime );\n END'\n\n EXEC sp_executesql @sql;\nEND\n\n\nDECLARE @starttime bigint\nSET @starttime = [dbo].[DateToTicks](@StartTimeN);\n\nDECLARE @endtime bigint\nSET @endtime = [dbo].[DateToTicks](@EndTimeN);\n\nDECLARE @tid int\nSET @tid =\n  (SELECT rid\n   FROM AFElementTemplate\n   WHERE id = (SELECT [id] FROM [dbo].[AFElementTemplate] WHERE Name = @EFTemlate AND fkdatabaseid = (SELECT [id] FROM [dbo].[AFDatabase] WHERE Name = @AFDatabase)));\n\nDECLARE @did int\nSET @did =\n  (SELECT rid\n   FROM AFDatabase\n   WHERE name = @AFDatabase);\n\nDECLARE @AllEF TABLE (\n id uniqueidentifier INDEX IX1 CLUSTERED )\n\n             \n\nINSERT INTO @AllEF \nSELECT DISTINCT \n    ev.id\nFROM\n    [AFEventFrame] ev           \n\n    WHERE \n (\n        (ev.endtime > @starttime and ev.endtime < @endtime)\n     OR\n        (iscaptured = 0 and ev.endtime = 3155378975990000000)\n )\n    and ev.fkdatabaseid = @did\n    and ev.fktemplateid = @tid  \n                              \n\nDECLARE @FilteredEF0 TABLE (\n id uniqueidentifier INDEX IX1 CLUSTERED )\n\n\n\nINSERT INTO @FilteredEF0\nSELECT DISTINCT\n    ev.id\nFROM \n    [AFEventFrame] ev\n\n\n\nWHERE(EXISTS (SELECT * from\n                                            [AFEventFrame] ev1\n                                            LEFT OUTER JOIN[dbo].[AFEventFrameAttributeValue] attrValue ON attrValue.fkeventframeid = ev1.Rowid\n                                            LEFT OUTER JOIN[dbo].[AFElementTemplateAttribute] attrTempl ON attrValue.fkattributetemplateid = attrTempl.rid where ev1.Rowid = ev.Rowid \nAND ((attrTempl.[name] = 'StatusCode' AND attrValue.valuestring = '1')\n                             OR ev.endtime < 3155378975990000000  ))\n\n                                            \n\n)\n\n\nAND\n(\n    (ev.endtime > @starttime and ev.endtime < @endtime)\n    OR\n    (iscaptured = 0 and ev.endtime = 3155378975990000000)\n)\nAND ev.fkdatabaseid = @did\nAND ev.fktemplateid = @tid\nSELECT\n    res.id \nFROM\n    (\n    \nSELECT\n    ae.id \nFROM \n    @AllEF ae INTERSECT SELECT \n                                    ae.id \n           FROM \n               @AllEF ae\n           LEFT JOIN\n           @FilteredEF0 fe\n           ON\n           ae.id = fe.id\n           WHERE fe.id is null\n    ) AS res\n    LEFT JOIN \n        AFEventFrame \n    ON\n        res.id = AFEventFrame.id\n    ORDER BY\n        creationDate";
+
+    private string QNotActiveEvents = "SET DATEFORMAT YMD;\nDECLARE @StartTimeN as datetime\nDECLARE @EndTimeN as datetime\nDECLARE @AFDatabase as nvarchar(50)\nDECLARE @EFTemlate as nvarchar(50)\nSET @StartTimeN = '{0:yyyy-MM-dd HH:mm:ss}';\nSET @EndTimeN = '{1:yyyy-MM-dd HH:mm:ss}';\nSET @AFDatabase = '{2}'\nSET @EFTemlate = '{3}'\nIF NOT EXISTS(SELECT *\n           FROM   sys.objects\n           WHERE  object_id = OBJECT_ID(N'[dbo].[ToDateTime2]')\n                  AND type IN ( N'FN', N'IF', N'TF', N'FS', N'FT' ))\nBEGIN\n DECLARE @sql NVARCHAR(MAX);\n SET @sql = N'CREATE FUNCTION [dbo].[ToDateTime2] ( @Ticks bigint )\n   RETURNS datetime2\n AS\n BEGIN\n  DECLARE @DateTime datetime2 = ' + CHAR(39) + '00010101' + CHAR(39) +';\n  SET @DateTime = DATEADD( DAY, @Ticks / 864000000000, @DateTime );\n  SET @DateTime = DATEADD( SECOND, ( @Ticks % 864000000000) / 10000000, @DateTime );\n  RETURN DATEADD( NANOSECOND, ( @Ticks % 10000000 ) * 100, @DateTime );\n END'\n\n EXEC sp_executesql @sql;\nEND\n\n\nDECLARE @starttime bigint\nSET @starttime = [dbo].[DateToTicks](@StartTimeN);\n\nDECLARE @endtime bigint\nSET @endtime = [dbo].[DateToTicks](@EndTimeN);\n\nDECLARE @tid int\nSET @tid =\n  (SELECT rid FROM AFElementTemplate\n   WHERE id = (SELECT [id] FROM [dbo].[AFElementTemplate] WHERE Name = @EFTemlate AND fkdatabaseid = (SELECT [id] FROM [dbo].[AFDatabase] WHERE Name = @AFDatabase)));\n\nDECLARE @did int\nSET @did = (SELECT rid FROM AFDatabase WHERE name = @AFDatabase);\n\nDECLARE @AllEF TABLE (id uniqueidentifier INDEX IX1 CLUSTERED )\n\nINSERT INTO @AllEF \nSELECT DISTINCT \n    ev.id\nFROM\n    [AFEventFrame] ev           \n\n    WHERE \n (\n        (ev.endtime > @starttime and ev.endtime < @endtime)\n     OR\n        (iscaptured = 0 and ev.endtime = 3155378975990000000)\n )\n    and ev.fkdatabaseid = @did\n    and ev.fktemplateid = @tid  \n                              \n\nDECLARE @FilteredEF0 TABLE (\n id uniqueidentifier INDEX IX1 CLUSTERED )\n\n\n\nINSERT INTO @FilteredEF0\nSELECT DISTINCT\n    ev.id\nFROM \n    [AFEventFrame] ev\n\n\n\nWHERE(EXISTS (SELECT * from\n                                            [AFEventFrame] ev1\n                                            LEFT OUTER JOIN[dbo].[AFEventFrameAttributeValue] attrValue ON attrValue.fkeventframeid = ev1.Rowid\n                                            LEFT OUTER JOIN[dbo].[AFElementTemplateAttribute] attrTempl ON attrValue.fkattributetemplateid = attrTempl.rid where ev1.Rowid = ev.Rowid \nAND ((attrTempl.[name] = 'StatusCode' AND attrValue.valuestring = '1')\n                             OR ev.endtime < 3155378975990000000  ))\n                                            \n\n)\n\n\nAND\n(\n    (ev.endtime > @starttime and ev.endtime < @endtime)\n    OR\n    (iscaptured = 0 and ev.endtime = 3155378975990000000)\n)\nAND ev.fkdatabaseid = @did\nAND ev.fktemplateid = @tid\nSELECT\n    res.id \nFROM\n    (\n    \nSELECT\n    ae.id \nFROM \n    @AllEF ae INTERSECT   SELECT id FROM @FilteredEF0\n    ) AS res\n    LEFT JOIN \n        AFEventFrame \n    ON\n        res.id = AFEventFrame.id\n    ORDER BY\n        creationDate";
+
+    private string QAcknowledgedEvents = "SET DATEFORMAT YMD;\nDECLARE @StartTimeN as datetime\nDECLARE @EndTimeN as datetime\nDECLARE @AFDatabase as nvarchar(50)\nDECLARE @EFTemlate as nvarchar(50)\nSET @StartTimeN = '{0:yyyy-MM-dd HH:mm:ss}';\nSET @EndTimeN = '{1:yyyy-MM-dd HH:mm:ss}';\nSET @AFDatabase = '{2}'\nSET @EFTemlate = '{3}'\nIF NOT EXISTS(SELECT *\n           FROM   sys.objects\n           WHERE  object_id = OBJECT_ID(N'[dbo].[ToDateTime2]')\n                  AND type IN ( N'FN', N'IF', N'TF', N'FS', N'FT' ))\nBEGIN\n DECLARE @sql NVARCHAR(MAX);\n SET @sql = N'CREATE FUNCTION [dbo].[ToDateTime2] ( @Ticks bigint )\n   RETURNS datetime2\n AS\n BEGIN\n  DECLARE @DateTime datetime2 = ' + CHAR(39) + '00010101' + CHAR(39) +';\n  SET @DateTime = DATEADD( DAY, @Ticks / 864000000000, @DateTime );\n  SET @DateTime = DATEADD( SECOND, ( @Ticks % 864000000000) / 10000000, @DateTime );\n  RETURN DATEADD( NANOSECOND, ( @Ticks % 10000000 ) * 100, @DateTime );\n END'\n\n EXEC sp_executesql @sql;\nEND\n\n\nDECLARE @starttime bigint\nSET @starttime = 637012848370000000;\n\nDECLARE @endtime bigint\nSET @endtime = 637013712370000000;\n\nDECLARE @tid int\nSET @tid =\n  (SELECT rid\n   FROM AFElementTemplate\n   WHERE id = (SELECT [id] FROM [dbo].[AFElementTemplate] WHERE Name = @EFTemlate AND fkdatabaseid = (SELECT [id] FROM [dbo].[AFDatabase] WHERE Name = @AFDatabase)));\n\nDECLARE @did int\nSET @did = (SELECT rid FROM AFDatabase WHERE name = @AFDatabase);\n\nDECLARE @AllEF TABLE (id uniqueidentifier INDEX IX1 CLUSTERED )\n\n             \n\nINSERT INTO @AllEF \nSELECT DISTINCT \n    ev.id\nFROM\n    [AFEventFrame] ev           \n\n    WHERE \n (\n        (ev.endtime > @starttime and ev.endtime < @endtime)\n     OR\n        (iscaptured = 0 and ev.endtime = 3155378975990000000)\n )\n    and ev.fkdatabaseid = @did\n    and ev.fktemplateid = @tid  \n                              \n\nDECLARE @FilteredEF0 TABLE (\n id uniqueidentifier INDEX IX1 CLUSTERED )\n\n\n\nINSERT INTO @FilteredEF0\nSELECT DISTINCT\n    ev.id\nFROM \n    [AFEventFrame] ev\n\n\n\nWHERE(EXISTS (SELECT * from\n                                            [AFEventFrame] ev1\n                                            LEFT OUTER JOIN[dbo].[AFEventFrameAttributeValue] attrValue ON attrValue.fkeventframeid = ev1.Rowid\n                                            LEFT OUTER JOIN[dbo].[AFElementTemplateAttribute] attrTempl ON attrValue.fkattributetemplateid = attrTempl.rid where ev1.Rowid = ev.Rowid \nAND ((attrTempl.[name] = 'Квитировано' AND attrValue.valuestring = '1')\n                             ))\n                                            \n\n)\n\n\nAND\n(\n    (ev.endtime > @starttime and ev.endtime < @endtime)\n    OR\n    (iscaptured = 0 and ev.endtime = 3155378975990000000)\n)\nAND ev.fkdatabaseid = @did\nAND ev.fktemplateid = @tid\nSELECT\n    res.id \nFROM\n    (\n    \nSELECT\n    ae.id \nFROM \n    @AllEF ae INTERSECT   SELECT id FROM @FilteredEF0\n    ) AS res\n    LEFT JOIN \n        AFEventFrame \n    ON\n        res.id = AFEventFrame.id\n    ORDER BY\n        creationDate";
+
+    private string QAllEventsOld = "SET DATEFORMAT YMD; \nDECLARE @StartTimeN as datetime \nDECLARE @EndTimeN as datetime \nDECLARE @AFDatabase as nvarchar(50) \nDECLARE @EFTemlate as nvarchar(50) \nSET @StartTimeN = '{0:yyyy-MM-dd HH:mm:ss}';\nSET @EndTimeN = '{1:yyyy-MM-dd HH:mm:ss}';\nSET @AFDatabase = '{2}'\nSET @EFTemlate = '{3}'\nIF NOT EXISTS(SELECT * \n           FROM   sys.objects \n           WHERE  object_id = OBJECT_ID(N'[dbo].[ToDateTime2]') \n                  AND type IN ( N'FN', N'IF', N'TF', N'FS', N'FT' )) \nBEGIN \n DECLARE @sql NVARCHAR(MAX); \n SET @sql = N'CREATE FUNCTION [dbo].[ToDateTime2] ( @Ticks bigint ) \n   RETURNS datetime2 \n AS \n BEGIN \n  DECLARE @DateTime datetime2 = ' + CHAR(39) + '00010101' + CHAR(39) +'; \n  SET @DateTime = DATEADD( DAY, @Ticks / 864000000000, @DateTime ); \n  SET @DateTime = DATEADD( SECOND, ( @Ticks % 864000000000) / 10000000, @DateTime ); \n  RETURN DATEADD( NANOSECOND, ( @Ticks % 10000000 ) * 100, @DateTime ); \n END' \n \n EXEC sp_executesql @sql; \nEND \n \n \nDECLARE @starttime bigint \nSET @starttime = [dbo].[DateToTicks](@StartTimeN); \n \nDECLARE @endtime bigint \nSET @endtime = [dbo].[DateToTicks](@EndTimeN); \n \nDECLARE @tid int \nSET @tid = \n  (SELECT rid \n   FROM AFElementTemplate \n   WHERE id = (SELECT [id] FROM [dbo].[AFElementTemplate] WHERE Name = @EFTemlate AND fkdatabaseid = (SELECT [id] FROM [dbo].[AFDatabase] WHERE Name = @AFDatabase))); \n \nDECLARE @did int \nSET @did = \n  (SELECT rid \n   FROM AFDatabase \n   WHERE name = @AFDatabase); \n \nDECLARE @AllEF TABLE ( \n id uniqueidentifier INDEX IX1 CLUSTERED ) \n \n              \n \nINSERT INTO @AllEF  \nSELECT DISTINCT  \n    ev.id \nFROM \n    [AFEventFrame] ev            \n \n    WHERE  \n ( \n        (ev.starttime >= @starttime and ev.starttime <= @endtime)  \n OR \n        (ev.endtime >= @starttime and ev.endtime <= @endtime) \n     OR \n        (ev.starttime < @endtime AND ev.endtime = 3155378975990000000) --iscaptured = 0 and \n ) \n    and ev.fkdatabaseid = @did \n    and ev.fktemplateid = @tid   \n                               \n \nDECLARE @FilteredEF0 TABLE ( \n id uniqueidentifier INDEX IX1 CLUSTERED ) \n \n \n \nINSERT INTO @FilteredEF0 \nSELECT DISTINCT \n    ev.id \nFROM  \n    [AFEventFrame] ev \n \n \n \nWHERE(EXISTS (SELECT * from \n                                            [AFEventFrame] ev1 \n                                            LEFT OUTER JOIN[dbo].[AFEventFrameAttributeValue] attrValue ON attrValue.fkeventframeid = ev1.Rowid \n                                            LEFT OUTER JOIN[dbo].[AFElementTemplateAttribute] attrTempl ON attrValue.fkattributetemplateid = attrTempl.rid where ev1.Rowid = ev.Rowid  \nAND ( ev.endtime < 3155378975990000000  )) \n \n                                             \n \n) \n \n \nAND \n( \n    (ev.endtime > @starttime and ev.endtime < @endtime) \n    OR \n    (iscaptured = 0 and ev.endtime = 3155378975990000000) \n) \nAND ev.fkdatabaseid = @did \nAND ev.fktemplateid = @tid \nSELECT \n    res.id  \nFROM \n    ( \n     \nSELECT \n    ae.id \nFROM  \n    @AllEF ae INTERSECT SELECT  \n                                    ae.id  \n           FROM  \n               @AllEF ae \n           LEFT JOIN \n           @FilteredEF0 fe \n           ON \n           ae.id = fe.id \n           WHERE fe.id is null \n    ) AS res \n    LEFT JOIN  \n        AFEventFrame  \n    ON \n        res.id = AFEventFrame.id \n    ORDER BY \n        creationDate \n";
+
+    string QAllEvents = "SET DATEFORMAT YMD; \n" +
+                        "DECLARE @StartTimeN as datetime \n" +
+                        "DECLARE @EndTimeN as datetime \n" +
+                        "DECLARE @AFDatabase as nvarchar(50) \n" +
+                        "DECLARE @EFTemlate as nvarchar(50) \n" +
+                        "SET @StartTimeN = '{0:yyyy-MM-dd HH:mm:ss}';\n" +
+                        "SET @EndTimeN = '{1:yyyy-MM-dd HH:mm:ss}';\n" +
+                        "SET @AFDatabase = '{2}'\n" +
+                        "SET @EFTemlate = '{3}'\n" +
+                        "\n" +
+                        "DECLARE @starttime bigint; SET @starttime = [dbo].[DateToTicks](@StartTimeN); \n" +
+                        "DECLARE @endtime bigint;   SET @endtime = [dbo].[DateToTicks](@EndTimeN); \n" +
+                        "\n" +
+                        "DECLARE @tid int \n" +
+                        "SET @tid = (SELECT rid FROM AFElementTemplate \n" +
+                        "  WHERE id = (SELECT [id] FROM [dbo].[AFElementTemplate] \n" +
+                        "    WHERE Name = @EFTemlate AND fkdatabaseid = (SELECT [id] FROM [dbo].[AFDatabase] \n" +
+                        "      WHERE Name = @AFDatabase))); \n" +
+                        " \n" +
+                        "DECLARE @did int \n" +
+                        "SET @did = (SELECT rid FROM AFDatabase \n" +
+                        "WHERE name = @AFDatabase); \n" +
+                        "\n" +
+                        "SELECT * FROM [AFEventFrame] ev           \n" +
+                        "WHERE  \n" +
+                        "( \n" +
+                        "        (ev.starttime >= @starttime and ev.starttime <= @endtime)  \n" +
+                        "     OR \n" +
+                        "        (ev.endtime >= @starttime and ev.endtime <= @endtime) \n" +
+                        "     OR \n" +
+                        "        (ev.starttime < @endtime AND ev.endtime = 3155378975990000000) \n" +
+                        ") \n" +
+                        "and ev.fkdatabaseid = @did \n" +
+                        "and ev.fktemplateid = @tid\n";
+    public AFSQLWORK(string _AFSQLConnStr, string _AFServerName, string _AFDatabase)
+    {
+        AFSQLConnStr = _AFSQLConnStr;
+        AFServerName = _AFServerName;
+        AFDatabase = _AFDatabase;
+        conn = new SqlConnection(AFSQLConnStr);
+        conn.Open();
+    }
+
+    public List<Guid> GetEventIDs(string Q, DateTime StartTime, DateTime EndTime, string EFTemplate)
+    {
+        SqlCommand sqlCommand = new SqlCommand(string.Format(Q, StartTime, EndTime, AFDatabase, EFTemplate), conn);
+        SqlDataReader sqlDataReader = sqlCommand.ExecuteReader(CommandBehavior.Default);
+        List<Guid> result = (from IDataRecord r in sqlDataReader
+                             select (Guid)r["id"]).ToList();
+        sqlDataReader.Close();
+        sqlCommand.Dispose();
+        return result;
+    }
+
+    public List<Guid> GetActiveEventIDs(DateTime StartTime, DateTime EndTime, string EFTemplate)
+    {
+        return GetEventIDs(QActiveEvents, StartTime, EndTime, EFTemplate);
+    }
+
+    public List<Guid> GetNotActiveEventIDs(DateTime StartTime, DateTime EndTime, string EFTemplate)
+    {
+        return GetEventIDs(QNotActiveEvents, StartTime, EndTime, EFTemplate);
+    }
+
+    public List<Guid> GetAcknowledgedEventIDs(DateTime StartTime, DateTime EndTime, string EFTemplate)
+    {
+        return GetEventIDs(QAcknowledgedEvents, StartTime, EndTime, EFTemplate);
+    }
+
+    public List<Guid> GetAllEventIDs(DateTime StartTime, DateTime EndTime, string EFTemplate)
+    {
+        return GetEventIDs(QAllEvents, StartTime, EndTime, EFTemplate);
+    }
+}
+
+
+
+
+
+test
+
+
+
+
+using Microsoft.VisualBasic.FileIO;
+using OSIsoft.AF;
+using OSIsoft.AF.Asset;
+using OSIsoft.AF.EventFrame;
+using OSIsoft.AF.Search;
+using OSIsoft.AF.Time;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace TestXL01
+{
+    [Serializable(), ClassInterface(ClassInterfaceType.AutoDual), ComVisible(true)]
+    public class TestXL
+    {
+        private string AFSQLConnStr = "";
+
+        private string AFServerName = "";
+
+        private string AFDatabase = "";
+
+        private string SettingsCSVPath = "";
+
+        private string[] ReportFields = new string[0];
+
+        private string WorkDir = "";
+
+        private Dictionary<string, string[]> ControlParameters = new Dictionary<string, string[]>();
+
+        private PISystems piSystems = new PISystems();
+
+        private PISystem piSystem;
+
+        private AFDatabase afDatabase;
+
+        private Log log;
+
+        public string Test()
+        {
+            return "test";
+        }
+
+        public void LogLoad(bool IsLogging, string LogPath)
+        {
+            log = new Log(LogPath, IsLogging);
+            log.Write("Логгирование включено");
+        }
+
+        public void LoadParameters(string _AFServerName, string _AFDatabase, string _SettingsCSVPath, string _AFSQLConnStr = "")
+        {
+            AFServerName = _AFServerName;
+            AFDatabase = _AFDatabase;
+            AFSQLConnStr = _AFSQLConnStr;
+            log.Write("Заданы параметры:\r\nСервер AF: [" + _AFServerName + "]\r\nБаза AF: [" + _AFDatabase + "]");
+            try
+            {
+                using (TextFieldParser textFieldParser = new TextFieldParser(_SettingsCSVPath))
+                {
+                    textFieldParser.TextFieldType = FieldType.Delimited;
+                    textFieldParser.SetDelimiters(";");
+                    bool flag = true;
+                    while (!textFieldParser.EndOfData)
+                    {
+                        string[] array = textFieldParser.ReadFields();
+                        if (flag)
+                        {
+                            ReportFields = array;
+                        }
+                        else
+                        {
+                            ControlParameters.Add(array[0], array);
+                        }
+                        flag = false;
+                    }
+                }
+                piSystems = new PISystems();
+                piSystem = piSystems[AFServerName];
+                afDatabase = piSystem.Databases[AFDatabase];
+                log.Write("Подключение к базе AF - успешно.");
+            }
+            catch (Exception ex)
+            {
+                log.Write("Произошла ошибка:\r\n" + ex.Message);
+            }
+        }
+
+        public string[] GetAllEventsWithShopAndEventType(DateTime StartTime, DateTime EndTime, string SortedField = "", string Shop = "ВСЕ", string EventType = "ВСЕ", string OutDelimiter = ";")
+        {
+            log.Write($"Запрошены события за период:[{StartTime}]-[{EndTime}], Цех [{Shop}], Тип сигнала [{EventType}]");
+            List<string[]> list = new List<string[]>();
+            foreach (KeyValuePair<string, string[]> controlParameter in ControlParameters)
+            {
+                string key = controlParameter.Key;
+                string[] value = controlParameter.Value;
+                DateTime dateTime = StartTime.ToUniversalTime();
+                DateTime dateTime2 = EndTime.ToUniversalTime();
+                log.Write($"В AF будут запрошены даты:[{dateTime}]-[{dateTime2}], Цех [{Shop}], Тип сигнала [{EventType}], Шаблон [{key}]");
+                using (AFEventFrameSearch aFEventFrameSearch = new AFEventFrameSearch(afDatabase, "FindEventFields", AFSearchMode.Overlapped, new AFTime(dateTime), new AFTime(dateTime2), "Template:\"" + key + "\""))
+                {
+                    try
+                    {
+                        IEnumerable<EF_Fields> enumerable = aFEventFrameSearch.FindObjectFields<EF_Fields>();
+                        foreach (EF_Fields item in enumerable)
+                        {
+                            if (!(Shop.ToUpper() != "ВСЕ") || !(item.Cex.ToString().ToUpper() != Shop.ToUpper()))
+                            {
+                                Guid iD = item.ID;
+                                AFEventFrame aFEventFrame = AFEventFrame.FindEventFrame(piSystem, iD);
+                                string[] array = new string[ReportFields.Length];
+                                bool flag = false;
+                                for (int i = 0; i < value.Length; i++)
+                                {
+                                    if (EventType.ToUpper() != "ВСЕ")
+                                    {
+                                        string ET = aFEventFrame.Attributes["|Тип сигнала"].GetValue().ToString().ToUpper();
+                                        if (EventType.ToArray().Any((char x) => x == ';'))
+                                        {
+                                            string[] source = EventType.Split(';').ToArray();
+                                            if (!source.Any((string x) => x.ToUpper() == ET))
+                                            {
+                                                flag = true;
+                                                break;
+                                            }
+                                        }
+                                        else if (ET != EventType.ToUpper())
+                                        {
+                                            flag = true;
+                                            break;
+                                        }
+                                    }
+                                    if (i == 0)
+                                    {
+                                        array[i] = value[i];
+                                    }
+                                    else if (value[i] != "")
+                                    {
+                                        if (value[i] == "Name")
+                                        {
+                                            array[i] = aFEventFrame.Name;
+                                        }
+                                        else if (value[i] == "StartTime")
+                                        {
+                                            array[i] = aFEventFrame.StartTime.ToString("yyyy.MM.dd HH:mm:ss");
+                                        }
+                                        else if (value[i] == "EndTime")
+                                        {
+                                            array[i] = ((aFEventFrame.EndTime == AFTime.MaxValue) ? "" : aFEventFrame.EndTime.ToString("yyyy.MM.dd HH:mm:ss"));
+                                        }
+                                        else if (value[i] == "Duration")
+                                        {
+                                            array[i] = ((aFEventFrame.EndTime == AFTime.MaxValue) ? new TimeSpan(DateTime.Now.Ticks - aFEventFrame.StartTime.LocalTime.Ticks).ToString("dd\\.hh\\:mm\\:ss") : aFEventFrame.Duration.ToTimeSpan().ToString("dd\\.hh\\:mm\\:ss"));
+                                        }
+                                        else
+                                        {
+                                            try
+                                            {
+                                                array[i] = aFEventFrame.Attributes[value[i]].GetValue().ToString();
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                log.Write("Возникла ошибка при извлечении атрибута [" + value[i] + "] события [" + aFEventFrame.Name + "]:\n " + ex.Message);
+                                            }
+                                        }
+                                    }
+                                }
+                                if (!flag)
+                                {
+                                    list.Add(array);
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex2)
+                    {
+                        log.Write("При попытке поиска по шаблону " + key + " возникла ошибка:\n\r:" + ex2.Message);
+                    }
+                }
+            }
+            log.Write($"возвращено :[{list.Count}]");
+            if (SortedField != "")
+            {
+                int SortFieldN = -1;
+                for (int j = 0; j < ReportFields.Length; j++)
+                {
+                    if (ReportFields[j] == SortedField)
+                    {
+                        SortFieldN = j;
+                        break;
+                    }
+                }
+                if (SortFieldN != -1)
+                {
+                    list.Sort((string[] a, string[] b) => Convert.ToDateTime(a[SortFieldN]).CompareTo(Convert.ToDateTime(b[SortFieldN])));
+                }
+            }
+            return TostringArray(list, OutDelimiter);
+        }
+
+        public string[] GetAllEventsWithShopAndEventTypeSQL(DateTime StartTime, DateTime EndTime, string SortedField = "", string Shop = "ВСЕ", string EventType = "ВСЕ", string OutDelimiter = ";")
+        {
+            try
+            {
+                log.Write($"Запрошены события за период:[{StartTime}]-[{EndTime}], Цех [{Shop}], Тип сигнала [{EventType}]");
+                List<string[]> EFL = new List<string[]>();
+               Parallel.ForEach(ControlParameters, delegate (KeyValuePair<string, string[]> T)
+               //foreach(KeyValuePair<string, string[]> T in ControlParameters)
+               {
+                    string key = T.Key;
+                    string[] value = T.Value;
+                    DateTime dateTime = StartTime.ToUniversalTime();
+                    DateTime dateTime2 = EndTime.ToUniversalTime();
+                    log.Write($"В SQL будут запрошены даты:[{dateTime}]-[{dateTime2}], Цех [{Shop}], Тип сигнала [{EventType}], Шаблон [{key}]");
+                    AFSQLWORK aFSQLWORK = new AFSQLWORK(AFSQLConnStr, AFServerName, AFDatabase);
+                    List<Guid> allEventIDs = aFSQLWORK.GetAllEventIDs(dateTime, dateTime2, key);
+                    log.Write($"Количество неотфильтрованных событий [{allEventIDs.Count}]");
+                    foreach (Guid item in allEventIDs)
+                    {
+                        try
+                        {
+                            Guid id = item;
+                            AFEventFrame aFEventFrame = AFEventFrame.FindEventFrame(piSystem, id);
+                            string[] array = new string[ReportFields.Length];
+                            bool flag = false;
+                            for (int j = 0; j < value.Length; j++)
+                            {
+                                if (Shop.ToUpper() != "ВСЕ")
+                                {
+                                    string a2 = aFEventFrame.Attributes["|Цех"].GetValue().ToString().ToUpper();
+                                    if (a2 != Shop.ToUpper())
+                                    {
+                                        flag = true;
+                                        break;
+                                    }
+                                }
+                                if (EventType.ToUpper() != "ВСЕ")
+                                {
+                                    string ET = aFEventFrame.Attributes["|Тип сигнала"].GetValue().ToString().ToUpper();
+                                    if (EventType.ToArray().Any((char x) => x == ';'))
+                                    {
+                                        string[] source = EventType.Split(';').ToArray();
+                                        if (!source.Any((string x) => x.ToUpper() == ET))
+                                        {
+                                            flag = true;
+                                            break;
+                                        }
+                                    }
+                                    else if (ET != EventType.ToUpper())
+                                    {
+                                        flag = true;
+                                        break;
+                                    }
+                                }
+                                if (j == 0)
+                                {
+                                    array[j] = value[j];
+                                }
+                                else if (value[j] != "")
+                                {
+                                    if (value[j] == "Name")
+                                    {
+                                        array[j] = aFEventFrame.Name;
+                                    }
+                                    else if (value[j] == "StartTime")
+                                    {
+                                        array[j] = aFEventFrame.StartTime.ToString("yyyy.MM.dd HH:mm:ss");
+                                    }
+                                    else if (value[j] == "EndTime")
+                                    {
+                                        array[j] = ((aFEventFrame.EndTime == AFTime.MaxValue) ? "" : aFEventFrame.EndTime.ToString("yyyy.MM.dd HH:mm:ss"));
+                                    }
+                                    else if (value[j] == "Duration")
+                                    {
+                                        array[j] = ((aFEventFrame.EndTime == AFTime.MaxValue) ? new TimeSpan(DateTime.Now.Ticks - aFEventFrame.StartTime.LocalTime.Ticks).ToString("dd\\.hh\\:mm\\:ss") : aFEventFrame.Duration.ToTimeSpan().ToString("dd\\.hh\\:mm\\:ss"));
+                                    }
+                                    else
+                                    {
+                                        try
+                                        {
+                                            array[j] = aFEventFrame.Attributes[value[j]].GetValue().ToString();
+                                        }
+                                        catch (Exception ex2)
+                                        {
+                                            log.Write("Возникла ошибка при извлечении атрибута [" + value[j] + "] события [" + aFEventFrame.Name + "]:\n " + ex2.Message);
+                                        }
+                                    }
+                                }
+                            }
+                            if (!flag)
+                            {
+                                EFL.Add(array);
+                            }
+                        }
+                        catch (Exception ex3)
+                        {
+                            log.Write("При попытке поиска по шаблону " + key + " возникла ошибка:\n\r:" + ex3.Message);
+                        }
+                    }
+                }  );
+                log.Write($"возвращено :[{EFL.Count}]");
+                if (SortedField != "")
+                {
+                    int SortFieldN = -1;
+                    for (int i = 0; i < ReportFields.Length; i++)
+                    {
+                        if (ReportFields[i] == SortedField)
+                        {
+                            SortFieldN = i;
+                            break;
+                        }
+                    }
+                    if (SortFieldN != -1)
+                    {
+                        EFL.Sort((string[] a, string[] b) => Convert.ToDateTime(a[SortFieldN]).CompareTo(Convert.ToDateTime(b[SortFieldN])));
+                    }
+                }
+                return TostringArray(EFL, OutDelimiter);
+            }
+            catch (Exception ex)
+            {
+                log.Write("Произошла ошибка :[" + ex.Message + "]");
+                return new string[0];
+            }
+        }
+
+        private string[] TostringArray(List<string[]> L, string OutDelimiter)
+        {
+            List<string> list = new List<string>();
+            foreach (string[] item in L)
+            {
+                list.Add(string.Join(OutDelimiter, item));
+            }
+            return list.ToArray();
+        }
+    }
+    public class EF_Fields
+    {
+        public Guid ID;
+        public string Name;
+        public DateTime StartTime; //Возвращает время UTC. Чтобы получить время не по UTC, надо не забыть применить ToLocalTime()
+        public DateTime EndTime;
+        public TimeSpan Duration;
+        [AFSearch.ObjectField("|Цех")] public AFValue Cex { get; set; }
+        // [AFSearch.ObjectField("|'Тип события'")] public AFValue EvtType { get; set; }
+
+    }
+}
+
